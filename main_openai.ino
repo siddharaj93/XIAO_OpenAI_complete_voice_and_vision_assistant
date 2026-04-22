@@ -26,6 +26,7 @@
 #include "driver/i2s_pdm.h"
 #include "driver/gpio.h"
 #include "Audio.h"
+#include "nvs_flash.h"
 
 // ===== PIN MAPPING =====
 #define I2S_MIC_PORT I2S_NUM_0
@@ -1052,6 +1053,7 @@ void performNewVisionChat() {
 // ===== SETUP =====
 void setup() {
     Serial.begin(460800);
+    nvs_flash_init();
     Serial.println("\n=== XIAO ESP32S3 AI Assistant — OpenAI Edition ===");
 
     pinMode(kImageButtonPin,         INPUT_PULLUP);
