@@ -52,7 +52,7 @@ A fully offline-triggered, cloud-powered AI assistant built on the **Seeed Studi
 
 ### Arduino IDE Setup
 - Board: **XIAO ESP32S3** (via Espressif ESP32 board package)
-- Partition scheme: **Huge APP (3MB No OTA / 1MB SPIFFS)**
+- Partition scheme: **Default with spiffs (3MB APP/1.5MB SPIFFS)**
 
 ### Required Libraries
 Install all from Arduino Library Manager or GitHub:
