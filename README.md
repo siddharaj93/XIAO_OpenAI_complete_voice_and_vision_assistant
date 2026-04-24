@@ -38,9 +38,9 @@ A fully offline-triggered, cloud-powered AI assistant built on the **Seeed Studi
 | Config portal button | D10 | Hold 3 seconds to enter config mode |
 | New voice chat button | D8 | Press to discard voice history and start fresh |
 | New vision chat button | D9 | Press to discard vision history and start fresh |
-| MAX98357A BCLK | D6 (GPIO 6) | I2S clock |
-| MAX98357A LRC | D5 (GPIO 5) | I2S word select |
-| MAX98357A DIN | D2 (GPIO 2) | I2S data |
+| MAX98357A BCLK | D5 (GPIO 6) | I2S clock |
+| MAX98357A LRC | D4 (GPIO 5) | I2S word select |
+| MAX98357A DIN | D1 (GPIO 2) | I2S data |
 | PDM Microphone CLK | GPIO 42 | Built-in on Sense board |
 | PDM Microphone DATA | GPIO 41 | Built-in on Sense board |
 
@@ -68,8 +68,8 @@ The following are included with the ESP32 Arduino core and need no separate inst
 ### Files Needed
 Your sketch folder must contain these files:
 ```
-your_sketch/
-├── your_sketch.ino       ← main code
+
+├── main_openai.ino       ← main code
 ├── config_portal.h       ← WiFi configuration portal UI
 └── camera_pins.h         ← XIAO ESP32S3 Sense camera pin definitions
 ```
@@ -175,7 +175,7 @@ English (UK), English (US), English (India), Spanish (Spain), Spanish (Mexico), 
 ## Troubleshooting
 
 **No audio / silent speaker**
-- Check MAX98357A wiring — BCLK to D6, LRC to D5, DIN to D2.
+- Check MAX98357A wiring — BCLK to D5, LRC to D4, DIN to D1.
 - Make sure speaker is connected to MAX98357A output terminals.
 - Check volume is not at 0 — press D0 to cycle through levels.
 
@@ -192,6 +192,7 @@ English (UK), English (US), English (India), Spanish (Spain), Spanish (Mexico), 
 
 **WiFi keeps dropping**
 - Move closer to the router.
+- keep the antena of the board connected to it
 - The device will attempt to reconnect automatically before each API call.
 
 **Config portal doesn't open automatically**
@@ -202,7 +203,7 @@ English (UK), English (US), English (India), Spanish (Spain), Spanish (Mexico), 
 ## Project Structure
 
 ```
-├── main.ino                  Main sketch — all logic, API calls, button handling
+├── main_openai.ino                  Main sketch — all logic, API calls, button handling
 ├── config_portal.h           WiFi captive portal — HTML UI, web server, save handler
 └── camera_pins.h             Camera GPIO definitions for XIAO ESP32S3 Sense
 ```
