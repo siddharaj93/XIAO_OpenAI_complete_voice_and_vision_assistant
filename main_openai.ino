@@ -880,6 +880,11 @@ String sendVisionToOpenAI(const String& base64Image, const String& user_question
     (*req_doc)["model"]             = kOpenAIChatModel;
     (*req_doc)["max_output_tokens"] = 250;
 
+    // Web search tool
+    JsonArray tools = req_doc->createNestedArray("tools");
+    JsonObject ws   = tools.createNestedObject();
+    ws["type"] = "web_search";
+
     // Always send instructions on every turn — same reason as voice:
     // ensures name/role from config portal are always active.
     (*req_doc)["instructions"] = buildSystemPrompt(true);
