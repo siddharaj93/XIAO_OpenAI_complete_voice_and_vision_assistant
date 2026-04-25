@@ -20,12 +20,14 @@ extern String selected_language;
 extern String selected_whisper_language;
 extern String assistant_name;
 extern String assistant_role;
+extern String selected_timezone;
 extern String last_error_message;
 extern unsigned long last_error_time;
 extern String CONFIG_PORTAL_SSID;
 extern bool   configMode;
 
-extern void saveConfiguration(String, String, String, String, String, String);
+// saveConfiguration now takes a timezone argument as the last parameter.
+extern void saveConfiguration(String, String, String, String, String, String, String);
 
 static String getMACAddress() {
     uint8_t mac[6];
@@ -43,6 +45,88 @@ struct LanguageOption {
 
 extern const LanguageOption SUPPORTED_LANGUAGES[];
 extern const int NUM_LANGUAGES;
+
+// ---------------------------------------------------------------------------
+// Timezone database
+// Each entry: { IANA name, display label }
+// Covers every UTC offset from -12 to +14 with the most common cities.
+// ---------------------------------------------------------------------------
+struct TimezoneOption {
+    const char* iana;    // IANA tz name passed to the system prompt
+    const char* label;   // Human-readable label shown in the dropdown
+};
+
+static const TimezoneOption TIMEZONES[] = {
+    // UTC
+    {"UTC",                    "UTC — Coordinated Universal Time"},
+    // Americas
+    {"Pacific/Midway",         "UTC-11 — Midway Island, Samoa"},
+    {"Pacific/Honolulu",       "UTC-10 — Hawaii"},
+    {"America/Anchorage",      "UTC-9  — Alaska"},
+    {"America/Los_Angeles",    "UTC-8  — Pacific Time (US & Canada)"},
+    {"America/Denver",         "UTC-7  — Mountain Time (US & Canada)"},
+    {"America/Phoenix",        "UTC-7  — Arizona (no DST)"},
+    {"America/Chicago",        "UTC-6  — Central Time (US & Canada)"},
+    {"America/Mexico_City",    "UTC-6  — Mexico City"},
+    {"America/New_York",       "UTC-5  — Eastern Time (US & Canada)"},
+    {"America/Bogota",         "UTC-5  — Bogota, Lima, Quito"},
+    {"America/Caracas",        "UTC-4  — Caracas"},
+    {"America/Halifax",        "UTC-4  — Atlantic Time (Canada)"},
+    {"America/Manaus",         "UTC-4  — Manaus"},
+    {"America/St_Johns",       "UTC-3:30 — Newfoundland"},
+    {"America/Sao_Paulo",      "UTC-3  — Brasilia, São Paulo"},
+    {"America/Argentina/Buenos_Aires", "UTC-3 — Buenos Aires"},
+    {"America/Godthab",        "UTC-3  — Greenland"},
+    {"Atlantic/South_Georgia", "UTC-2  — South Georgia"},
+    {"Atlantic/Azores",        "UTC-1  — Azores"},
+    {"Atlantic/Cape_Verde",    "UTC-1  — Cape Verde Islands"},
+    // Europe & Africa
+    {"Europe/London",          "UTC+0  — London, Dublin, Lisbon"},
+    {"Africa/Casablanca",      "UTC+1  — Casablanca, Monrovia"},
+    {"Europe/Paris",           "UTC+1  — Paris, Madrid, Rome, Berlin"},
+    {"Europe/Warsaw",          "UTC+1  — Warsaw, Prague, Budapest"},
+    {"Africa/Lagos",           "UTC+1  — West Central Africa"},
+    {"Europe/Athens",          "UTC+2  — Athens, Bucharest, Helsinki"},
+    {"Africa/Cairo",           "UTC+2  — Cairo"},
+    {"Africa/Harare",          "UTC+2  — Harare, Pretoria"},
+    {"Europe/Moscow",          "UTC+3  — Moscow, St. Petersburg"},
+    {"Asia/Kuwait",            "UTC+3  — Kuwait, Riyadh"},
+    {"Africa/Nairobi",         "UTC+3  — Nairobi"},
+    {"Asia/Baghdad",           "UTC+3  — Baghdad"},
+    {"Asia/Tehran",            "UTC+3:30 — Tehran"},
+    {"Asia/Dubai",             "UTC+4  — Abu Dhabi, Muscat, Dubai"},
+    {"Asia/Baku",              "UTC+4  — Baku, Tbilisi, Yerevan"},
+    {"Asia/Kabul",             "UTC+4:30 — Kabul"},
+    {"Asia/Karachi",           "UTC+5  — Islamabad, Karachi"},
+    {"Asia/Tashkent",          "UTC+5  — Tashkent, Ekaterinburg"},
+    {"Asia/Kolkata",           "UTC+5:30 — Mumbai, New Delhi, Kolkata"},
+    {"Asia/Colombo",           "UTC+5:30 — Sri Jayawardenepura"},
+    {"Asia/Kathmandu",         "UTC+5:45 — Kathmandu"},
+    {"Asia/Dhaka",             "UTC+6  — Astana, Dhaka"},
+    {"Asia/Almaty",            "UTC+6  — Almaty, Novosibirsk"},
+    {"Asia/Rangoon",           "UTC+6:30 — Yangon (Rangoon)"},
+    {"Asia/Bangkok",           "UTC+7  — Bangkok, Hanoi, Jakarta"},
+    {"Asia/Krasnoyarsk",       "UTC+7  — Krasnoyarsk"},
+    {"Asia/Shanghai",          "UTC+8  — Beijing, Chongqing, Hong Kong"},
+    {"Asia/Singapore",         "UTC+8  — Singapore, Kuala Lumpur"},
+    {"Asia/Taipei",            "UTC+8  — Taipei"},
+    {"Asia/Ulaanbaatar",       "UTC+8  — Ulaan Bataar"},
+    {"Australia/Perth",        "UTC+8  — Perth"},
+    {"Asia/Tokyo",             "UTC+9  — Tokyo, Osaka, Sapporo, Seoul"},
+    {"Asia/Seoul",             "UTC+9  — Seoul"},
+    {"Asia/Yakutsk",           "UTC+9  — Yakutsk"},
+    {"Australia/Adelaide",     "UTC+9:30 — Adelaide"},
+    {"Australia/Darwin",       "UTC+9:30 — Darwin"},
+    {"Australia/Brisbane",     "UTC+10 — Brisbane"},
+    {"Australia/Sydney",       "UTC+10 — Sydney, Melbourne, Canberra"},
+    {"Pacific/Guam",           "UTC+10 — Guam, Port Moresby"},
+    {"Asia/Vladivostok",       "UTC+10 — Vladivostok"},
+    {"Asia/Magadan",           "UTC+11 — Magadan, Solomon Is."},
+    {"Pacific/Auckland",       "UTC+12 — Auckland, Wellington"},
+    {"Pacific/Fiji",           "UTC+12 — Fiji, Kamchatka"},
+    {"Pacific/Tongatapu",      "UTC+13 — Nuku'alofa"},
+};
+static const int NUM_TIMEZONES = sizeof(TIMEZONES) / sizeof(TIMEZONES[0]);
 
 // ---------------------------------------------------------------------------
 // Portal objects
@@ -167,6 +251,7 @@ static const char CONFIG_HTML_TOP[] PROGMEM =
 "<p><strong>OpenAI API Key:</strong> %API_STATUS%</p>"
 "<p><strong>Assistant Name:</strong> %CURRENT_NAME%</p>"
 "<p><strong>Language:</strong> %CURRENT_LANGUAGE%</p>"
+"<p><strong>Timezone:</strong> %CURRENT_TIMEZONE%</p>"
 "<p><strong>Volume:</strong> Level %VOLUME_VALUE% (Use D0 button to adjust)</p>"
 "</div>"
 "<form id='configForm' method='POST' action='/save' onsubmit='return handleSubmit(event)'>"
@@ -209,11 +294,16 @@ static const char CONFIG_HTML_TOP[] PROGMEM =
 "<p class='help-text info'>&#x1F4A1; Example: You are a friendly cooking expert who loves sharing recipes</p>"
 "</div>"
 "<div class='section-divider'></div>"
-"<div class='section-title'>&#x1F5E3;&#xFE0F; Language Settings</div>"
+"<div class='section-title'>&#x1F5E3;&#xFE0F; Language &amp; Region</div>"
 "<div class='form-group'>"
 "<label for='language'>Voice Language (TTS &amp; STT)</label>"
 "<select id='language' name='language'>%LANGUAGE_OPTIONS%</select>"
 "<p class='help-text'>Select the language for voice input and output</p>"
+"</div>"
+"<div class='form-group'>"
+"<label for='timezone'>&#x1F554; Timezone</label>"
+"<select id='timezone' name='timezone'>%TIMEZONE_OPTIONS%</select>"
+"<p class='help-text info'>&#x1F4A1; Used so the AI searches for the correct local time, weather, news &amp; more</p>"
 "</div>"
 "<button type='submit'><span class='btn-text'>Save Configuration</span></button>"
 "</form>"
@@ -312,6 +402,15 @@ static String getLanguageName(const String& code) {
     return code;
 }
 
+// Helper: timezone label lookup
+static String getTimezoneName(const String& iana) {
+    for (int i = 0; i < NUM_TIMEZONES; i++) {
+        if (String(TIMEZONES[i].iana) == iana)
+            return String(TIMEZONES[i].label);
+    }
+    return iana;
+}
+
 // ---------------------------------------------------------------------------
 // HTML builder
 // ---------------------------------------------------------------------------
@@ -361,20 +460,33 @@ static String getConfigHTML() {
         html.replace("%APIKEY_HELP%",         "Get your API key from platform.openai.com");
     }
 
-    html.replace("%CURRENT_NAME%",   assistant_name);
-    html.replace("%ASSISTANT_NAME%", assistant_name);
-    html.replace("%ASSISTANT_ROLE%", assistant_role);
+    html.replace("%CURRENT_NAME%",     assistant_name);
+    html.replace("%ASSISTANT_NAME%",   assistant_name);
+    html.replace("%ASSISTANT_ROLE%",   assistant_role);
     html.replace("%CURRENT_LANGUAGE%", getLanguageName(selected_language));
+    html.replace("%CURRENT_TIMEZONE%", getTimezoneName(selected_timezone));
     html.replace("%VOLUME_VALUE%",     String(speaker_volume));
 
-    String opts = "";
+    // Language options
+    String langOpts = "";
     for (int i = 0; i < NUM_LANGUAGES; i++) {
         String sel = (String(SUPPORTED_LANGUAGES[i].code) == selected_language) ? " selected" : "";
-        opts += "<option value='" + String(SUPPORTED_LANGUAGES[i].code) + "'" + sel + ">";
-        opts += String(SUPPORTED_LANGUAGES[i].name);
-        opts += "</option>";
+        langOpts += "<option value='" + String(SUPPORTED_LANGUAGES[i].code) + "'" + sel + ">";
+        langOpts += String(SUPPORTED_LANGUAGES[i].name);
+        langOpts += "</option>";
     }
-    html.replace("%LANGUAGE_OPTIONS%", opts);
+    html.replace("%LANGUAGE_OPTIONS%", langOpts);
+
+    // Timezone options
+    String tzOpts = "";
+    for (int i = 0; i < NUM_TIMEZONES; i++) {
+        String sel = (String(TIMEZONES[i].iana) == selected_timezone) ? " selected" : "";
+        tzOpts += "<option value='" + String(TIMEZONES[i].iana) + "'" + sel + ">";
+        tzOpts += String(TIMEZONES[i].label);
+        tzOpts += "</option>";
+    }
+    html.replace("%TIMEZONE_OPTIONS%", tzOpts);
+
     return html;
 }
 
@@ -413,9 +525,10 @@ static void handleSave() {
     String new_language = server.arg("language");
     String new_ai_name  = server.arg("assistant_name");
     String new_ai_role  = server.arg("assistant_role");
+    String new_timezone = server.arg("timezone");
 
     new_ssid.trim(); new_password.trim(); new_apikey.trim();
-    new_language.trim(); new_ai_name.trim(); new_ai_role.trim();
+    new_language.trim(); new_ai_name.trim(); new_ai_role.trim(); new_timezone.trim();
 
     if (new_ssid.length()     == 0) new_ssid     = wifi_ssid;
     if (new_password.length() == 0) new_password = wifi_password;
@@ -423,6 +536,7 @@ static void handleSave() {
     if (new_language.length() == 0) new_language = selected_language;
     if (new_ai_name.length()  == 0) new_ai_name  = assistant_name;
     if (new_ai_role.length()  == 0) new_ai_role  = assistant_role;
+    if (new_timezone.length() == 0) new_timezone = selected_timezone;
 
     if (new_ssid.length()   == 0) { server.send(400, "text/plain", "WiFi SSID is required"); return; }
     if (new_apikey.length() == 0) { server.send(400, "text/plain", "OpenAI API Key is required"); return; }
@@ -431,7 +545,7 @@ static void handleSave() {
 
     if (new_ai_role.length() > 1500) new_ai_role = new_ai_role.substring(0, 1500);
 
-    saveConfiguration(new_ssid, new_password, new_apikey, new_language, new_ai_name, new_ai_role);
+    saveConfiguration(new_ssid, new_password, new_apikey, new_language, new_ai_name, new_ai_role, new_timezone);
 
     String html =
         "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
