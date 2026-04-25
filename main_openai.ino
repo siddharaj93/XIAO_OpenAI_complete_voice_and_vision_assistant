@@ -61,15 +61,16 @@ String selected_language         = "en-GB";
 String selected_whisper_language = "en";
 String assistant_name            = "Assistant";
 String assistant_role            = "You are a helpful AI assistant.";
+String selected_timezone         = "UTC";   // IANA timezone name, e.g. "Asia/Kolkata"
 
 // ===== OPENAI CONVERSATION STATE =====
 // The Responses API returns a response id that we pass back as
 // previous_response_id on the next turn — OpenAI keeps the full
 // conversation server-side. IDs are persisted to flash so they
-// survive device restarts. Pressing D8 clears both IDs and flash,
-// starting a completely fresh conversation thread.
+// survive device restarts. Pressing D8 clears only the voice ID;
+// pressing D9 clears only the vision ID. Factory reset clears both.
 // HTTP 400 with "response_not_found" means the thread expired on
-// OpenAI's servers — we auto-clear the ID and retry as a new thread.
+// OpenAI's servers — we auto-clear ONLY the expired ID and retry.
 String voice_prev_response_id  = "";   // D2 thread
 String vision_prev_response_id = "";   // D3 thread (kept separate)
 #define THREAD_PREF_NS "oai-threads"   // flash namespace for IDs
@@ -177,6 +178,8 @@ void   deinit_i2s_pdm();
 void   loadThreadIds();
 void   saveThreadIds();
 void   discardThreadIds();
+void   discardVoiceThreadId();
+void   discardVisionThreadId();
 String sendVoiceToOpenAI(const String& user_question);
 String sendVisionToOpenAI(const String& base64Image, const String& user_question);
 void   performCaptureAndAnalyze();
@@ -310,6 +313,7 @@ void loadConfiguration() {
     selected_language         = preferences.getString("language", "en-GB");
     assistant_name            = preferences.getString("ai_name",  "Assistant");
     assistant_role            = preferences.getString("ai_role",  "You are a helpful AI assistant.");
+    selected_timezone         = preferences.getString("timezone", "UTC");
     preferences.end();
 
     for (int i = 0; i < NUM_LANGUAGES; i++) {
@@ -328,10 +332,12 @@ void loadConfiguration() {
     Serial.printf("  STT Language: %s\n",   selected_whisper_language.c_str());
     Serial.printf("  Assistant Name: %s\n", assistant_name.c_str());
     Serial.printf("  AI Role: %s\n",        assistant_role.c_str());
+    Serial.printf("  Timezone: %s\n",       selected_timezone.c_str());
 }
 
 void saveConfiguration(String ssid, String password, String apikey,
-                       String language, String ai_name, String ai_role) {
+                       String language, String ai_name, String ai_role,
+                       String timezone) {
     preferences.begin("xiao-ai", false);
     preferences.putString("ssid",     ssid);
     preferences.putString("password", password);
@@ -339,6 +345,7 @@ void saveConfiguration(String ssid, String password, String apikey,
     preferences.putString("language", language);
     preferences.putString("ai_name",  ai_name);
     preferences.putString("ai_role",  ai_role);
+    preferences.putString("timezone", timezone);
     preferences.end();
     // NOTE: voice_prev_response_id and vision_prev_response_id are intentionally
     // NOT reset here. The conversation thread lives on OpenAI's servers and
@@ -383,7 +390,7 @@ void saveThreadIds() {
     preferences.end();
 }
 
-// Wipes BOTH IDs from RAM and flash (used internally on expired-thread auto-retry).
+// Wipes BOTH IDs from RAM and flash (factory reset / explicit full clear).
 void discardThreadIds() {
     voice_prev_response_id  = "";
     vision_prev_response_id = "";
@@ -673,9 +680,21 @@ inline bool ensureWiFi() {
 }
 
 // ===== SYSTEM PROMPT BUILDER =====
+// The timezone string (IANA name, e.g. "Asia/Kolkata") is injected so the
+// model knows which region the user is in when performing web searches for
+// time-sensitive information such as local time, weather, or news.
 String buildSystemPrompt(bool is_vision) {
     String s = assistant_role;
     s += " Your name is " + assistant_name + ".";
+
+    // Timezone context — always injected so web search and time queries
+    // are automatically scoped to the user's configured region.
+    s += " The user's local timezone is " + selected_timezone + "."
+         " When searching for time-sensitive information (current time, weather,"
+         " local news, prayer times, business hours, sports schedules, etc.),"
+         " always use this timezone to interpret and report times correctly."
+         " When stating the current time, convert to this timezone before answering."
+         " Use the provided timezone always unless the user asks to search for any other specific region or timezone by himself";
 
     s += " STRICT TIME AND DATE RULE: ONLY mention the time or date if the user explicitly asks."
          " When stating time, say only hours and minutes in local format. Nothing else."
@@ -694,7 +713,6 @@ String buildSystemPrompt(bool is_vision) {
         s += " You are in VISION MODE. You can see and analyze images."
              " You work alongside a VOICE mode (D2 button) that handles general questions."
              " If the user asks something not related to the image, say: I am in vision mode, please ask general questions using the voice button.";
-             
     } else {
         s += " You are in VOICE MODE. You have web search enabled — use it automatically for any question"
              " about current events, news, prices, weather, sports scores, or anything that could have changed recently."
@@ -708,6 +726,8 @@ String buildSystemPrompt(bool is_vision) {
 // ===== OPENAI RESPONSES API — VOICE (D2) =====
 // Uses previous_response_id so OpenAI maintains conversation history.
 // Web search tool is always included; model decides when to invoke it.
+// On HTTP 400 "response_not_found" ONLY the voice thread ID is cleared;
+// the vision thread ID is left completely untouched.
 String sendVoiceToOpenAI(const String& user_question) {
     if (user_question.isEmpty() || !ensureWiFi()) {
         Serial.println("Skipping: empty question or no WiFi.");
@@ -747,9 +767,8 @@ String sendVoiceToOpenAI(const String& user_question) {
     (*req_doc)["max_output_tokens"] = 300;
 
     // Always send instructions on every turn — this ensures the assistant
-    // name and role from the config portal are always active, even when
-    // resuming a thread via previous_response_id after a restart.
-    // OpenAI applies instructions fresh on each call.
+    // name, role, and timezone from the config portal are always active,
+    // even when resuming a thread via previous_response_id after a restart.
     (*req_doc)["instructions"] = buildSystemPrompt(false);
 
     // Conversation continuity
@@ -757,7 +776,7 @@ String sendVoiceToOpenAI(const String& user_question) {
         (*req_doc)["previous_response_id"] = voice_prev_response_id;
     }
 
-    // Web search tool — always enabled; model decides when to use it
+    // Web search tool — always enabled for voice; model decides when to use it
     JsonArray tools = req_doc->createNestedArray("tools");
     JsonObject ws   = tools.createNestedObject();
     ws["type"] = "web_search";
@@ -810,7 +829,6 @@ String sendVoiceToOpenAI(const String& user_question) {
                 }
             }
             if (answer.isEmpty()) {
-                
                 if (response_doc->containsKey("output_text"))
                     answer = (*response_doc)["output_text"].as<String>();
             }
@@ -818,10 +836,10 @@ String sendVoiceToOpenAI(const String& user_question) {
             reportError("Failed to parse OpenAI response JSON", false);
         }
     } else if (code == 400 && body.indexOf("response_not_found") >= 0) {
-        // The saved thread ID has expired on OpenAI's servers.
-        // Discard it, clear flash, and retry once as a brand-new thread.
-        Serial.println("Voice thread expired on OpenAI servers — starting fresh and retrying.");
-        discardThreadIds();
+        // Only the voice thread ID has expired — discard it alone.
+        // The vision thread ID is completely untouched.
+        Serial.println("Voice thread expired on OpenAI servers — clearing voice ID only and retrying.");
+        discardVoiceThreadId();
         persistent_http->end();
         return sendVoiceToOpenAI(user_question);   // single retry, no infinite loop
     } else {
@@ -836,6 +854,8 @@ String sendVoiceToOpenAI(const String& user_question) {
 // ===== OPENAI RESPONSES API — VISION (D3) =====
 // Uses previous_response_id for vision thread continuity.
 // Image is passed as base64 data URL in the input array.
+// On HTTP 400 "response_not_found" ONLY the vision thread ID is cleared;
+// the voice thread ID is left completely untouched.
 String sendVisionToOpenAI(const String& base64Image, const String& user_question) {
     if (base64Image.isEmpty() || !ensureWiFi()) {
         Serial.println("No image or no WiFi.");
@@ -880,13 +900,15 @@ String sendVisionToOpenAI(const String& base64Image, const String& user_question
     (*req_doc)["model"]             = kOpenAIChatModel;
     (*req_doc)["max_output_tokens"] = 250;
 
-    // Web search tool
+    // Web search tool — included so the model can look up additional context
+    // about what it sees (e.g. identify a product, look up a landmark, check
+    // a price). Model decides when to invoke it, same as voice mode.
     JsonArray tools = req_doc->createNestedArray("tools");
     JsonObject ws   = tools.createNestedObject();
     ws["type"] = "web_search";
 
     // Always send instructions on every turn — same reason as voice:
-    // ensures name/role from config portal are always active.
+    // ensures name, role, and timezone from config portal are always active.
     (*req_doc)["instructions"] = buildSystemPrompt(true);
 
     if (!vision_prev_response_id.isEmpty()) {
@@ -906,7 +928,6 @@ String sendVisionToOpenAI(const String& base64Image, const String& user_question
     JsonObject img_part  = content.createNestedObject();
     img_part["type"]     = "input_image";
     img_part["image_url"] = "data:image/jpeg;base64," + base64Image;
-    
 
     String payload;
     serializeJson(*req_doc, payload);
@@ -956,10 +977,10 @@ String sendVisionToOpenAI(const String& base64Image, const String& user_question
             reportError("Failed to parse Vision response JSON", false);
         }
     } else if (code == 400 && body.indexOf("response_not_found") >= 0) {
-        // The saved thread ID has expired on OpenAI's servers.
-        // Discard it, clear flash, and retry once as a brand-new thread.
-        Serial.println("Vision thread expired on OpenAI servers — starting fresh and retrying.");
-        discardThreadIds();
+        // Only the vision thread ID has expired — discard it alone.
+        // The voice thread ID is completely untouched.
+        Serial.println("Vision thread expired on OpenAI servers — clearing vision ID only and retrying.");
+        discardVisionThreadId();
         persistent_http->end();
         return sendVisionToOpenAI(base64Image, user_question);   // single retry
     } else {
@@ -1096,6 +1117,7 @@ void setup() {
     if (digitalRead(kImageButtonPin) == LOW && digitalRead(kVoiceButtonPin) == LOW) {
         Serial.println("\n!!! FACTORY RESET !!!");
         clearConfiguration();
+        discardThreadIds();
         delay(2000);
         ESP.restart();
     }
@@ -1122,12 +1144,13 @@ void setup() {
             Serial.printf("  Role           : %s\n", assistant_role.c_str());
             Serial.printf("  LLM model      : %s (Responses API)\n", kOpenAIChatModel);
             Serial.printf("  STT model      : %s\n", kOpenAIWhisperModel);
-            Serial.printf("  Web search     : ENABLED (auto)\n");
+            Serial.printf("  Web search     : ENABLED (auto, voice + vision)\n");
             Serial.printf("  Chat history   : Server-side, persisted to flash\n");
             Serial.printf("  Voice thread   : %s\n", voice_prev_response_id.isEmpty()  ? "(new)" : "resumed");
             Serial.printf("  Vision thread  : %s\n", vision_prev_response_id.isEmpty() ? "(new)" : "resumed");
             Serial.printf("  TTS Language   : %s\n", getLanguageName(selected_language).c_str());
             Serial.printf("  STT Language   : %s\n", selected_whisper_language.c_str());
+            Serial.printf("  Timezone       : %s\n", selected_timezone.c_str());
             Serial.println("\nPress D3 (hold) for Vision mode.");
             Serial.println("Press D2 (hold) for Voice + Web Search mode.");
             Serial.println("Press D8        to start a new voice chat.");
